@@ -1,0 +1,46 @@
+name: Deploy to AWS EC2
+
+on:
+  push:
+    branches: [ "week5" ]
+  pull_request:
+    branches: [ "week5" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Connect to AWS EC2 and deploy
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.AWS_HOST }}
+        username: ec2-user
+        key: ${{ secrets.AWS_SSH_KEY }}
+        script: |
+          # Navigate to project directory
+          cd ~
+          
+          # Pull latest changes
+          git pull origin week3
+          
+          # Backend setup and restart
+          cd aiops/backend
+          source venv/bin/activate
+          pip install -r requirements.txt
+          
+          # Kill existing backend process if running
+          pkill -f "python app.py" || true
+          
+          # Start backend in background
+          nohup python app.py > ~/backend.log 2>&1 &
+          
+          # Frontend setup and restart
+          cd ../frontend
+          source venv/bin/activate
+          pip install -r requirements.txt
+          
+          # Kill existing frontend process if running
+          pkill -f "streamlit run frontend.py" || true
+          
+          # Start frontend in background
+          nohup streamlit run frontend.py > ~/frontend.log 2>&1 &
