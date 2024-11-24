@@ -1,0 +1,47 @@
+name: Deploy to AWS EC2
+on:
+  push:
+    branches: [ "week5" ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: 3.16.13.9
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          # Navigate to project directory
+          cd aiops
+
+          # Kill existing processes
+          pkill -f "python app.py"
+          pkill -f "streamlit run frontend.py"
+
+          # Pull latest code
+          git pull origin week5
+
+          # Deploy backend
+          cd backend
+          source venv/bin/activate
+          nohup python app.py > ~/backend.log 2>&1 &
+          deactivate
+
+          # Deploy frontend
+          cd ../frontend
+          source venv/bin/activate
+          nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > ~/frontend.log 2>&1 &
+          deactivate
