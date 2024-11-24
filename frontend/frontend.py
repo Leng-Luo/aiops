@@ -1,109 +1,89 @@
-# frontend/app.py
+# frontend.py
 import streamlit as st
 import requests
 
-# 设置页面配置
+# 页面配置
 st.set_page_config(
-    page_title="Python Learning Assistant",
-    page_icon="🐍",
-    layout="wide",
-    menu_items={
-        'Get Help': 'https://www.example.com/help',
-        'Report a Bug': 'https://www.example.com/bug',
-        'About': 'This is a Python Learning Assistant application.'
-    }    
+    page_title="ChatBot with Roles",
+    page_icon="💬"
 )
 
-# 初始化session state
+# 初始化聊天历史
 if 'messages' not in st.session_state:
     st.session_state.messages = []
 
-def send_message(message):
-    """发送消息并获取响应"""
+# 角色描述
+ROLE_DESCRIPTIONS = {
+    "kids_teacher": "儿童编程教师 👶",
+    "programmer": "资深程序员 💻",
+    "professor": "大学教授 📚"
+}
+
+def send_message(message, role):
+    """发送消息到后端"""
     try:
-        response = requests.get(f"http://localhost:5000/chat", params={"message": message})
+        response = requests.post(
+            f"http://localhost:5000/chat/{role}",
+            json={"message": message}
+        )
         if response.status_code == 200:
-            return response.json()
-        return None
+            return response.json()['response']
+        return f"Error: {response.json().get('error', 'Unknown error')}"
     except Exception as e:
-        st.error(f"Error: {str(e)}")
-        return None
+        return f"Error: {str(e)}"
 
-def main():
-    st.title("Python Learning Assistant 🐍")
-    
-    # 创建两列布局
-    left, right = st.columns(2)
-    
-    with left:
-        # 显示聊天历史
-        for message in st.session_state.messages:
-            if message["is_user"]:
-                st.info(f"You: {message['text']}")
-            else:
-                st.success(f"Assistant: {message['text']}")
-        
-        # 用户输入区域
-        input_col, space, button_col = st.columns([8,1,1])
-        
-        with input_col:
-            user_input = st.text_input("Ask something:")
-        
-        with button_col:
-            send_clicked = st.button("Send")
-        
-        # 处理发送逻辑
-        if send_clicked and user_input:
-            # 添加用户消息
-            st.session_state.messages.append({
-                "is_user": True,
-                "text": user_input
-            })
-            
-            # 获取响应
-            response = send_message(user_input)
-            if response:
-                st.session_state.messages.append({
-                    "is_user": False,
-                    "text": response['response']
-                })
-            st.rerun()
-    
-    with right:
-        # Quick Python Examples
-        st.subheader("Quick Python Examples")
-        with st.expander("List Operations", expanded=False):
-            st.code("""
-            numbers = [1, 2, 3, 4, 5]
-            numbers.append(6)      # Add to end
-            numbers.pop()         # Remove last
-            numbers.insert(0, 0)  # Insert at position
-            """)
-        st.write("---")
-        with st.expander("Dictionary Operations", expanded=True):
-            st.code("""     
-            person = {'name': 'Alice', 'age': 25}
-            person['city'] = 'Beijing'  # Add new key
-            del person['age']          # Remove key
-            """)
-        
-        with st.expander("Function Example", expanded=True):
-            st.code("""
-            def greet(name):
-                return f"Hello, {name}!"
+# 页面标题
+st.title("💬 多角色聊天机器人")
 
-                # Call the function
-                message = greet("World")
-            """)
+# 角色选择
+selected_role = st.selectbox(
+    "选择你想对话的角色：",
+    options=list(ROLE_DESCRIPTIONS.keys()),
+    format_func=lambda x: ROLE_DESCRIPTIONS[x]
+)
 
-        # Recent History
-        st.subheader("Recent History")
-        if st.session_state.messages:
-            for msg in st.session_state.messages[-5:]:  # 显示最近5条消息
-                if msg["is_user"]:
-                    st.text(f"Q: {msg['text']}")
-                else:
-                    st.text(f"A: {msg['text']}")
+# 显示当前角色的描述
+if selected_role == "kids_teacher":
+    st.info("👶 我是一位善于用简单语言和生动例子教学的儿童编程老师！")
+elif selected_role == "programmer":
+    st.info("💻 我是一位经验丰富的程序员，可以提供专业的技术建议！")
+else:
+    st.info("📚 我是一位从理论角度解释问题的大学教授！")
 
-if __name__ == "__main__":
-    main()
+# 显示聊天历史
+for message in st.session_state.messages:
+    if message["is_user"]:
+        st.write("你: " + message['text'])
+    else:
+        st.write(f"{ROLE_DESCRIPTIONS[message['role']]}: {message['text']}")
+
+# 用户输入
+user_input = st.text_input("请输入你的问题:")
+
+# 发送按钮
+if st.button("发送"):
+    if user_input:
+        # 添加用户消息到历史
+        st.session_state.messages.append({
+            "is_user": True,
+            "text": user_input,
+            "role": selected_role
+        })
+        
+        # 获取机器人响应
+        bot_response = send_message(user_input, selected_role)
+        
+        # 添加机器人响应到历史
+        st.session_state.messages.append({
+            "is_user": False,
+            "text": bot_response,
+            "role": selected_role
+        })
+        
+        # 重新加载页面显示新消息
+        st.rerun()
+
+# 添加清除聊天历史的按钮
+if st.button("清除对话历史"):
+    st.session_state.messages = []
+    st.rerun()

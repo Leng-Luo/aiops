@@ -1,105 +1,85 @@
+# app.py
 from flask import Flask, request, jsonify
-from datetime import datetime
-import random
+from dotenv import load_dotenv
+from openai import OpenAI
+import os
+
+# Load environment variables
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = Flask(__name__)
 
-# Store chat history in memory (in a real app, you'd use a database)
-chat_history = []
-
-# Some educational responses for teaching Python concepts
-PYTHON_CONCEPTS = {
-    "loop": "In Python, loops (for and while) are used for iteration. Example: for i in range(5): print(i)",
-    "list": "Lists are ordered collections in Python. Example: my_list = [1, 2, 3]. You can append, remove, and modify elements.",
-    "dictionary": "Dictionaries store key-value pairs. Example: my_dict = {'name': 'John', 'age': 25}",
-    "function": "Functions are defined using 'def'. Example: def greet(name): return f'Hello {name}!'",
-    "class": "Classes are blueprints for objects. Example: class Dog: def bark(self): return 'Woof!'"
+# 定义不同角色的系统提示
+ROLE_PROMPTS = {
+    "kids_teacher": {
+        "role": "system",
+        "content": """你是一个有经验的幼儿编程老师。你需要：
+        1. 使用简单、生动的语言
+        2. 多用生活中的例子来类比
+        3. 避免使用专业术语
+        4. 多用emoji表情
+        5. 保持鼓励和正面的态度
+        6. 把编程概念比喻成小朋友熟悉的东西
+        7. 每次回答都要充满热情和耐心"""
+    },
+    "programmer": {
+        "role": "system",
+        "content": """你是一个有10年经验的高级程序员。你需要：
+        1. 使用准确的技术术语
+        2. 提供实用的代码示例
+        3. 解释潜在的性能影响
+        4. 分享最佳实践和设计模式
+        5. 提到可能遇到的常见陷阱
+        6. 推荐相关的技术文档和资源
+        7. 讨论不同方案的优劣"""
+    },
+    "professor": {
+        "role": "system",
+        "content": """你是一个没有编程经验但学识渊博的大学教授。你需要：
+        1. 用通用的学术语言解释概念
+        2. 多用类比和图解
+        3. 避免具体的代码实现细节
+        4. 从逻辑和思维方式的角度解释
+        5. 联系其他学科的知识
+        6. 强调问题解决的思路
+        7. 保持学术性的表达方式"""
+    }
 }
 
-@app.route('/')
-def hello_world():
-    return '''
-    Welcome to the Python Learning Chat!
-    Available endpoints:
-    - /chat?message=your_message
-    - /history
-    - /learn?topic=python_concept
-    '''
-
-@app.route('/chat')
-def chat():
-    message = request.args.get('message', '').lower()
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Process the message and generate a response
-    response = process_message(message)
-    
-    # Store in chat history
-    chat_entry = {
-        'timestamp': timestamp,
-        'message': message,
-        'response': response
-    }
-    chat_history.append(chat_entry)
-    
-    # Return JSON response
-    return jsonify(chat_entry)
-
-
-
-
-def process_message(message):
-    # Check for Python keywords in the message
-    for concept, explanation in PYTHON_CONCEPTS.items():
-        if concept in message:
-            return f"Let me teach you about {concept}: {explanation}"
-    
-    # Basic conversation patterns
-    if "hello" in message or "hi" in message:
-        return "Hello! What would you like to learn about Python today?"
-    elif "help" in message:
-        return "I can help you learn about Python concepts! Try asking about: loops, lists, dictionaries, functions, or classes."
-    elif "example" in message:
-        return provide_random_example()
-    
-    else:
-        return f"You said: {message}. Try asking about Python concepts or type 'help' for guidance!"
-
-
-@app.route('/history')
-def get_history():
-    # Add option to limit the number of messages returned
-    limit = request.args.get('limit', default=10, type=int)
-    return jsonify(chat_history[-limit:])
-
-@app.route('/learn')
-def learn():
-    topic = request.args.get('topic', '').lower()
-    if topic in PYTHON_CONCEPTS:
+@app.route('/chat/<role>', methods=['POST'])
+def chat(role):
+    try:
+        if role not in ROLE_PROMPTS:
+            return jsonify({'error': 'Invalid role'}), 400
+        
+        data = request.get_json()
+        message = data.get('message', '')
+        
+        if not message:
+            return jsonify({'error': 'Message is required'}), 400
+        
+        # 构建包含角色设定的消息列表
+        messages = [
+            ROLE_PROMPTS[role],  # 系统角色设定
+            {
+                "role": "user",
+                "content": message
+            }
+        ]
+        
+        completion = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=messages
+        )
+        
         return jsonify({
-            'topic': topic,
-            'explanation': PYTHON_CONCEPTS[topic]
+            'role': role,
+            'response': completion.choices[0].message.content
         })
-    else:
-        return jsonify({
-            'error': 'Topic not found',
-            'available_topics': list(PYTHON_CONCEPTS.keys())
-        })
-
-def provide_random_example():
-    examples = [
-        "Here's a list comprehension example: squares = [x**2 for x in range(5)]",
-        "Here's a lambda function example: add = lambda x, y: x + y",
-        "Here's a string formatting example: name = 'World'; print(f'Hello {name}!')",
-        "Here's a try/except example: try:\n    result = 10/0\nexcept ZeroDivisionError:\n    print('Cannot divide by zero')"
-    ]
-    return random.choice(examples)
-
-
-
-#http://localhost:5000/chat?message=tell+me+about+lists
-#http://localhost:5000/history?limit=5
-#http://localhost:5000/learn?topic=dictionary
+    
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='127.0.0.1', port=5000)
+    app.run(debug=True, port=5000)
