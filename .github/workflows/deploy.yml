@@ -15,11 +15,12 @@ jobs:
         key: ${{ secrets.EC2_SSH_KEY }}
         script: |
           # Navigate to project directory
-          cd aiops
+          cd /home/ec2-user/aiops
 
-          # Kill existing processes
-          pkill -f "python app.py"
-          pkill -f "streamlit run frontend.py"
+          # Kill existing processes (with error handling)
+          pkill -f "python app.py" || true
+          pkill -f "streamlit run frontend.py" || true
+          sleep 2
 
           # Pull latest code
           git pull origin week5
@@ -27,11 +28,13 @@ jobs:
           # Deploy backend
           cd backend
           source venv/bin/activate
-          nohup python app.py > ~/backend.log 2>&1 &
+          nohup python app.py > /home/ec2-user/backend.log 2>&1 &
+          sleep 5  # Wait for backend to start
           deactivate
 
           # Deploy frontend
           cd ../frontend
           source venv/bin/activate
-          nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > ~/frontend.log 2>&1 &
+          nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > /home/ec2-user/frontend.log 2>&1 &
+          sleep 5  # Wait for frontend to start
           deactivate
