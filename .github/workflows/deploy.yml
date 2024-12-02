@@ -6,45 +6,106 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15  # Set explicit timeout
+    
     steps:
+    - name: Check SSH connection
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: ${{ secrets.EC2_IP_ADDRESS }}
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        timeout: 60s
+        script: echo "SSH connection successful"
+        
     - name: Deploy to EC2
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: 3.16.13.9
         username: ${{ secrets.EC2_USERNAME }}
         key: ${{ secrets.EC2_SSH_KEY }}
-        command_timeout: 30m
+        command_timeout: 10m
         script: |
-          # Navigate to project directory
-          cd /home/ec2-user/aiops
+          set -e  # Exit on error
           
-          # Kill existing processes with error handling
-          ps aux | grep "[p]ython app.py" | awk '{print $2}' | xargs kill -9 || true
-          ps aux | grep "[s]treamlit run frontend.py" | awk '{print $2}' | xargs kill -9 || true
-          sleep 5
+          echo "Starting deployment at $(date)"
           
-          # Pull latest code
-          git pull origin week5
+          # Check if directory exists
+          if [ ! -d "/home/${{ secrets.EC2_USERNAME }}/aiops" ]; then
+            echo "Directory does not exist"
+            exit 1
+          fi
+          
+          # Navigate to project directory with error checking
+          cd /home/${{ secrets.EC2_USERNAME }}/aiops || {
+            echo "Failed to change directory"
+            exit 1
+          }
+          
+          # Kill processes more safely
+          for PROC in "python app.py" "streamlit run frontend.py"; do
+            PID=$(pgrep -f "$PROC" || true)
+            if [ ! -z "$PID" ]; then
+              echo "Stopping $PROC (PID: $PID)"
+              kill $PID || true
+              sleep 2
+              kill -9 $PID 2>/dev/null || true
+            fi
+          done
+          
+          # Pull latest code with error checking
+          git fetch origin week5 || {
+            echo "Git fetch failed"
+            exit 1
+          }
+          git reset --hard origin/week5 || {
+            echo "Git reset failed"
+            exit 1
+          }
           
           # Deploy backend
-          cd backend
-          source venv/bin/activate
-          nohup python app.py > /home/ec2-user/backend.log 2>&1 &
+          cd backend || exit 1
+          source venv/bin/activate || {
+            echo "Failed to activate backend venv"
+            exit 1
+          }
+          
+          echo "Starting backend..."
+          nohup python app.py > ../backend.log 2>&1 &
+          BACKEND_PID=$!
           deactivate
           
-          # Sleep to ensure backend is running
-          sleep 10
+          # Check if backend started
+          sleep 5
+          if ! ps -p $BACKEND_PID > /dev/null; then
+            echo "Backend failed to start"
+            cat ../backend.log
+            exit 1
+          fi
           
           # Deploy frontend
-          cd ../frontend
-          source venv/bin/activate
-          nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > /home/ec2-user/frontend.log 2>&1 &
+          cd ../frontend || exit 1
+          source venv/bin/activate || {
+            echo "Failed to activate frontend venv"
+            exit 1
+          }
+          
+          echo "Starting frontend..."
+          nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > ../frontend.log 2>&1 &
+          FRONTEND_PID=$!
           deactivate
           
-          # Final verification
+          # Check if frontend started
           sleep 5
-          ps aux | grep -e "python app.py" -e "streamlit run frontend.py"
-          echo "Deployment complete"
+          if ! ps -p $FRONTEND_PID > /dev/null; then
+            echo "Frontend failed to start"
+            cat ../frontend.log
+            exit 1
+          fi
           
-          # Exit SSH session explicitly
+          # Final verification
+          echo "Verifying processes..."
+          ps aux | grep -e "python app.py" -e "streamlit run frontend.py"
+          
+          echo "Deployment completed at $(date)"
           exit 0
