@@ -7,30 +7,29 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - name: Deploy
+    - name: Update Code
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: 3.16.13.9
         username: ${{ secrets.EC2_USERNAME }}
         key: ${{ secrets.EC2_SSH_KEY }}
-        script_stop: true
-        command_timeout: 1m
+        command_timeout: 30s
         script: |
-          # Quick process cleanup
-          pkill -f "python app.py" || true
-          pkill -f "streamlit run frontend.py" || true
-          
-          # Deploy applications
           cd /home/${{ secrets.EC2_USERNAME }}/aiops
           git fetch origin week5
           git reset --hard origin/week5
+
+    - name: Deploy Services
+      uses: appleboy/ssh-action@v1.0.0
+      with:
+        host: 3.16.13.9
+        username: ${{ secrets.EC2_USERNAME }}
+        key: ${{ secrets.EC2_SSH_KEY }}
+        command_timeout: 30s
+        script: |
+          cd /home/${{ secrets.EC2_USERNAME }}/aiops
+          pkill -f "python app.py" || true
+          pkill -f "streamlit run frontend.py" || true
           
-          cd backend
-          source venv/bin/activate
-          nohup python app.py > /dev/null 2>&1 &
-          deactivate
-          
-          cd ../frontend
-          source venv/bin/activate
-          nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > /dev/null 2>&1 &
-          deactivate
+          cd backend && source venv/bin/activate && nohup python app.py > /dev/null 2>&1 & deactivate
+          cd ../frontend && source venv/bin/activate && nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > /dev/null 2>&1 & deactivate
