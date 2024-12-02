@@ -12,32 +12,67 @@ jobs:
         host: ${{ secrets.EC2_IP_ADDRESS }}
         username: ${{ secrets.EC2_USERNAME }}
         key: ${{ secrets.EC2_SSH_KEY }}
-        command_timeout: 1m
+        command_timeout: 5m
         script: |
-          # Navigate to project directory
-          cd aiops
-          # Kill existing processes with error handling
-          ps aux | grep "[p]ython app.py" | awk '{print $2}' | xargs kill -9 || true
-          ps aux | grep "[s]treamlit run frontend.py" | awk '{print $2}' | xargs kill -9 || true
+          # Error handling
+          set -e
+          
+          echo "Starting deployment..."
+          
+          # Define paths
+          BASE_DIR="/home/${{ secrets.EC2_USERNAME }}/aiops"
+          BACKEND_DIR="$BASE_DIR/backend"
+          FRONTEND_DIR="$BASE_DIR/frontend"
+          
+          # Kill existing processes with exact path matching
+          echo "Stopping existing processes..."
+          pkill -f "$BACKEND_DIR/venv/bin/python $BACKEND_DIR/app.py" || true
+          pkill -f "$FRONTEND_DIR/venv/bin/python3 $FRONTEND_DIR/venv/bin/streamlit" || true
           sleep 5
+          
+          # Navigate to project directory
+          cd "$BASE_DIR" || exit 1
+          
           # Pull latest code
-          git pull 
+          echo "Pulling latest code..."
+          git fetch --all
+          git reset --hard origin/week5
           
           # Deploy backend
-          cd backend
-          source venv/bin/activate
-          nohup python app.py > /home/${{ secrets.EC2_USERNAME }}/backend.log 2>&1 &
+          echo "Deploying backend..."
+          cd "$BACKEND_DIR" || exit 1
+          source venv/bin/activate || exit 1
+          nohup "$BACKEND_DIR/venv/bin/python" "$BACKEND_DIR/app.py" > "$BASE_DIR/backend.log" 2>&1 &
           deactivate
-          # Sleep to ensure backend is running
+          
+          # Wait for backend to start
           sleep 10
+          if ! pgrep -f "$BACKEND_DIR/venv/bin/python $BACKEND_DIR/app.py" > /dev/null; then
+            echo "Backend failed to start. Check logs."
+            exit 1
+          fi
+          
           # Deploy frontend
-          cd ../frontend
-          source venv/bin/activate
-          nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > /home/${{ secrets.EC2_USERNAME }}/frontend.log 2>&1 &
+          echo "Deploying frontend..."
+          cd "$FRONTEND_DIR" || exit 1
+          source venv/bin/activate || exit 1
+          nohup "$FRONTEND_DIR/venv/bin/python3" "$FRONTEND_DIR/venv/bin/streamlit" run frontend.py \
+            --server.address 0.0.0.0 \
+            --server.port 8501 \
+            > "$BASE_DIR/frontend.log" 2>&1 &
           deactivate
+          
+          # Wait for frontend to start
+          sleep 10
+          if ! pgrep -f "$FRONTEND_DIR/venv/bin/python3 $FRONTEND_DIR/venv/bin/streamlit" > /dev/null; then
+            echo "Frontend failed to start. Check logs."
+            # Kill backend if frontend fails
+            pkill -f "$BACKEND_DIR/venv/bin/python $BACKEND_DIR/app.py" || true
+            exit 1
+          fi
+          
           # Final verification
-          sleep 5
-          ps aux | grep -e "python app.py" -e "streamlit run frontend.py"
-          echo "Deployment complete"
-          # Exit SSH session explicitly
-          exit 0
+          echo "Verifying processes..."
+          ps aux | grep -e "python" | grep -v "grep"
+          
+          echo "Deployment completed successfully!"
