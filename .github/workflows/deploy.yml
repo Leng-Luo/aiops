@@ -2,34 +2,42 @@ name: Deploy to AWS EC2
 on:
   push:
     branches: [ "week5" ]
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-    - name: Update Code
+    - name: Deploy to EC2
       uses: appleboy/ssh-action@v1.0.0
       with:
-        host: 3.16.13.9
+        host: ${{ secrets.EC2_IP_ADDRESS }}
         username: ${{ secrets.EC2_USERNAME }}
         key: ${{ secrets.EC2_SSH_KEY }}
-        command_timeout: 30s
+        command_timeout: 1m
         script: |
-          cd /home/${{ secrets.EC2_USERNAME }}/aiops
-          git fetch origin week5
-          git reset --hard origin/week5
-
-    - name: Deploy Services
-      uses: appleboy/ssh-action@v1.0.0
-      with:
-        host: 3.16.13.9
-        username: ${{ secrets.EC2_USERNAME }}
-        key: ${{ secrets.EC2_SSH_KEY }}
-        command_timeout: 30s
-        script: |
-          cd /home/${{ secrets.EC2_USERNAME }}/aiops
-          pkill -f "python app.py" || true
-          pkill -f "streamlit run frontend.py" || true
+          # Navigate to project directory
+          cd aiops
+          # Kill existing processes with error handling
+          ps aux | grep "[p]ython app.py" | awk '{print $2}' | xargs kill -9 || true
+          ps aux | grep "[s]treamlit run frontend.py" | awk '{print $2}' | xargs kill -9 || true
+          sleep 5
+          # Pull latest code
+          git pull 
           
-          cd backend && source venv/bin/activate && nohup python app.py > /dev/null 2>&1 & deactivate
-          cd ../frontend && source venv/bin/activate && nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > /dev/null 2>&1 & deactivate
+          # Deploy backend
+          cd backend
+          source venv/bin/activate
+          nohup python app.py > /home/${{ secrets.EC2_USERNAME }}/backend.log 2>&1 &
+          deactivate
+          # Sleep to ensure backend is running
+          sleep 10
+          # Deploy frontend
+          cd ../frontend
+          source venv/bin/activate
+          nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > /home/${{ secrets.EC2_USERNAME }}/frontend.log 2>&1 &
+          deactivate
+          # Final verification
+          sleep 5
+          ps aux | grep -e "python app.py" -e "streamlit run frontend.py"
+          echo "Deployment complete"
+          # Exit SSH session explicitly
+          exit 0
