@@ -6,64 +6,31 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    
     steps:
-    - name: Deploy to EC2
+    - name: Deploy
       uses: appleboy/ssh-action@v1.0.0
       with:
         host: 3.16.13.9
         username: ${{ secrets.EC2_USERNAME }}
         key: ${{ secrets.EC2_SSH_KEY }}
-        command_timeout: 5m
+        script_stop: true
+        command_timeout: 1m
         script: |
-          # Cleanup function
-          cleanup() {
-            echo "Cleaning up processes..."
-            pkill -f "python app.py" || true
-            pkill -f "streamlit run frontend.py" || true
-            exit 0
-          }
-          
-          # Set trap for cleanup on script exit
-          trap cleanup EXIT
-          
-          echo "Starting deployment at $(date)"
-          
-          # Navigate to project directory
-          cd /home/${{ secrets.EC2_USERNAME }}/aiops || {
-            echo "Failed to change directory"
-            exit 1
-          }
-          
-          # Stop existing processes
-          echo "Stopping existing processes..."
+          # Quick process cleanup
           pkill -f "python app.py" || true
           pkill -f "streamlit run frontend.py" || true
-          sleep 2
           
-          # Update code
-          echo "Updating code..."
+          # Deploy applications
+          cd /home/${{ secrets.EC2_USERNAME }}/aiops
           git fetch origin week5
           git reset --hard origin/week5
           
-          # Start backend
-          echo "Starting backend..."
           cd backend
           source venv/bin/activate
-          nohup python app.py > ../backend.log 2>&1 &
+          nohup python app.py > /dev/null 2>&1 &
           deactivate
           
-          # Start frontend
-          echo "Starting frontend..."
           cd ../frontend
           source venv/bin/activate
-          nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > ../frontend.log 2>&1 &
+          nohup streamlit run frontend.py --server.address 0.0.0.0 --server.port 8501 > /dev/null 2>&1 &
           deactivate
-          
-          # Quick verification
-          echo "Verifying processes..."
-          sleep 3
-          ps aux | grep -e "python app.py" -e "streamlit run frontend.py"
-          
-          echo "Deployment completed at $(date)"
